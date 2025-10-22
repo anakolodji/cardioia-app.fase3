@@ -2,6 +2,8 @@
 #include <DHTesp.h>
 #include <FS.h>
 #include <SPIFFS.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
 
 #include "storage_queue.h"
 
@@ -15,6 +17,13 @@ static const uint32_t BPM_WINDOW_MS  = 10000;  // janela de 10s
 
 // --- Capacidade da fila ---
 static const size_t QUEUE_MAX_LINES = 10000;
+
+// --- WiFi/MQTT ---
+static const char* WIFI_SSID = "Wokwi-GUEST";   // altere para seu SSID em hardware real
+static const char* WIFI_PASS = "";              // senha
+static const char* MQTT_HOST = "broker.hivemq.com";
+static const uint16_t MQTT_PORT = 1883;
+static const char* MQTT_TOPIC = "cardioia/ana/v1/vitals";
 
 // --- Estado global ---
 DHTesp dht;
@@ -31,6 +40,13 @@ uint32_t windowStart = 0;
 float lastTemp = NAN;
 float lastHum  = NAN;
 int lastBpm    = 0;
+
+// MQTT client
+WiFiClient wifiClient;
+PubSubClient mqtt(wifiClient);
+unsigned long mqttBackoffMs = 1000;     // backoff inicial 1s
+unsigned long mqttNextRetry = 0;        // millis para próxima tentativa
+String mqttClientId;
 
 // --- ISR de pulso no botão (conta borda de subida) ---
 void IRAM_ATTR onButtonChange() {
@@ -84,6 +100,78 @@ String makeSampleJson(uint32_t ts, float temp, float hum, int bpm, bool connecte
   return s;
 }
 
+// --- WiFi/MQTT helpers ---
+void ensureWifiIfConnected() {
+  if (!CONNECTED) return;
+  if (WiFi.status() == WL_CONNECTED) return;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
+void mqttSetupIfNeeded() {
+  if (mqttClientId.length() == 0) {
+    uint64_t mac = ESP.getEfuseMac();
+    uint32_t chipId = (uint32_t)(mac & 0xFFFFFF);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "cardioia-esp32-%06X", chipId);
+    mqttClientId = String(buf);
+  }
+  // Define sempre o servidor
+  mqtt.setServer(MQTT_HOST, MQTT_PORT);
+}
+
+void mqttEnsureConnected() {
+  if (!CONNECTED) return;
+  if (WiFi.status() != WL_CONNECTED) return;
+  mqttSetupIfNeeded();
+  unsigned long now = millis();
+  if (mqtt.connected()) return;
+  if (now < mqttNextRetry) return;
+
+  if (mqtt.connect(mqttClientId.c_str())) {
+    Serial.println(F("MQTT_CONNECTED"));
+    mqttBackoffMs = 1000; // reset backoff
+  } else {
+    Serial.println(F("MQTT_CONNECT_FAIL"));
+    // backoff exponencial com clamp a 30s
+    unsigned long next = mqttBackoffMs * 2;
+    if (next > 30000UL) next = 30000UL;
+    mqttBackoffMs = next;
+    mqttNextRetry = now + mqttBackoffMs;
+  }
+}
+
+void mqttLoopIfConnected() {
+  if (mqtt.connected()) {
+    mqtt.loop();
+  }
+}
+
+void mqttPublishLineIfPossible(const String& line) {
+  if (!mqtt.connected()) return;
+  bool ok = mqtt.publish(MQTT_TOPIC, line.c_str());
+  if (ok) Serial.println(F("MQTT_PUBLISH_OK"));
+  else Serial.println(F("MQTT_PUBLISH_FAIL"));
+}
+
+size_t flushQueueSerialAndMqtt(Stream& out) {
+  if (!SPIFFS.exists(QUEUE_FILE)) return 0; // usa path do header
+  File f = SPIFFS.open(QUEUE_FILE, FILE_READ);
+  if (!f) return 0;
+  size_t count = 0;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    if (line.length() == 0) continue;
+    out.println(line);
+    mqttPublishLineIfPossible(line);
+    count++;
+  }
+  f.close();
+  SPIFFS.remove(QUEUE_FILE);
+  ensureQueueFile();
+  return count;
+}
+
 // --- Processa comandos seriais ---
 void handleSerialCommands() {
   while (Serial.available()) {
@@ -92,11 +180,11 @@ void handleSerialCommands() {
     if (cmd.equalsIgnoreCase("ONLINE")) {
       CONNECTED = true;
       Serial.println(F("[STATE] CONNECTED=true (ONLINE)"));
-      // Força flush quando ficar online
-      size_t sent = flushQueue(Serial);
-      if (sent > 0) {
-        Serial.print(F("FLUSH ")); Serial.println((unsigned long)sent);
-      }
+      // Tenta conectar WiFi/MQTT e faz flush combinado
+      ensureWifiIfConnected();
+      mqttEnsureConnected();
+      size_t sent = flushQueueSerialAndMqtt(Serial);
+      Serial.print(F("FLUSH ")); Serial.println((unsigned long)sent);
       size_t qsz = getQueueSizeLines();
       Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)qsz);
     } else if (cmd.equalsIgnoreCase("OFFLINE")) {
@@ -142,6 +230,13 @@ void setup() {
 void loop() {
   handleSerialCommands();
 
+  // Conectividade (modo conectado)
+  if (CONNECTED) {
+    ensureWifiIfConnected();
+    mqttEnsureConnected();
+  }
+  mqttLoopIfConnected();
+
   // Leituras periódicas
   readDhtIfDue();
 
@@ -160,7 +255,11 @@ void loop() {
         Serial.println(F("[ERROR] ENQUEUE failed"));
       }
 
-      size_t sent = flushQueue(Serial);
+      // Publica amostra atual também via MQTT (já enfileirada)
+      mqttPublishLineIfPossible(json);
+
+      // Envia backlog (Serial + MQTT) e limpa arquivo
+      size_t sent = flushQueueSerialAndMqtt(Serial);
       Serial.print(F("FLUSH ")); Serial.println((unsigned long)sent);
       size_t qsz = getQueueSizeLines();
       Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)qsz);

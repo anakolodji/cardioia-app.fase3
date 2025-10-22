@@ -1,0 +1,241 @@
+[
+  {
+    "id": "tab1",
+    "type": "ui_tab",
+    "name": "CardioIA",
+    "icon": "dashboard",
+    "disabled": false,
+    "hidden": false
+  },
+  {
+    "id": "group1",
+    "type": "ui_group",
+    "name": "Vitals",
+    "tab": "tab1",
+    "order": 1,
+    "disp": true,
+    "width": 12,
+    "collapse": false
+  },
+  {
+    "id": "mqtt_broker1",
+    "type": "mqtt-broker",
+    "name": "HiveMQ Public",
+    "broker": "broker.hivemq.com",
+    "port": 1883,
+    "clientid": "",
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "sessionExpiry": ""
+  },
+  {
+    "id": "mqtt_in1",
+    "type": "mqtt in",
+    "z": "",
+    "name": "Vitals MQTT",
+    "topic": "cardioia/ana/v1/vitals",
+    "qos": "0",
+    "datatype": "auto",
+    "broker": "mqtt_broker1",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "x": 180,
+    "y": 80,
+    "wires": [["json1"]]
+  },
+  {
+    "id": "json1",
+    "type": "json",
+    "z": "",
+    "name": "parse json",
+    "property": "payload",
+    "action": "obj",
+    "pretty": false,
+    "x": 380,
+    "y": 80,
+    "wires": [["fn_norm","debug1"]]
+  },
+  {
+    "id": "fn_norm",
+    "type": "function",
+    "z": "",
+    "name": "normalize vitals",
+    "func": "// Espera payload com {ts, temp, hum, bpm}
+var p = msg.payload || {};
+var ts = Number(p.ts)||Date.now();
+var temp = Number(p.temp);
+var hum = Number(p.hum);
+var bpm = parseInt(p.bpm,10);
+
+var status = 'OK';
+var color = '#2ecc71'; // verde
+if (temp > 38 && bpm > 120) {
+  status = 'ALTA_TEMP+TAQUICARDIA';
+  color = '#e74c3c';
+} else if (temp > 38) {
+  status = 'ALTA_TEMP';
+  color = '#e67e22'; // laranja
+} else if (bpm > 120) {
+  status = 'TAQUICARDIA';
+  color = '#e67e22';
+}
+
+// Saída 1: Chart BPM (payload numérico)
+var outChart = { payload: bpm, ts: ts };
+
+// Saída 2: Gauge Temp (payload numérico)
+var outGauge = { payload: temp };
+
+// Saída 3: Status (texto + cor)
+var outStatus = { payload: status, color: color };
+
+// Saída 4: Debug enriquecido
+msg.ts = ts; msg.temp = temp; msg.hum = hum; msg.bpm = bpm; msg.status = status; msg.color = color;
+var outDebug = msg;
+
+return [outChart, outGauge, outStatus, outDebug];",
+    "outputs": 4,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 580,
+    "y": 80,
+    "wires": [["ui_chart_bpm"],["ui_gauge_temp"],["ui_text_status","ui_led"],["debug2"]]
+  },
+  {
+    "id": "ui_chart_bpm",
+    "type": "ui_chart",
+    "z": "",
+    "name": "BPM",
+    "group": "group1",
+    "order": 1,
+    "width": 12,
+    "height": 6,
+    "label": "BPM",
+    "chartType": "line",
+    "legend": "false",
+    "xformat": "HH:mm:ss",
+    "interpolate": "linear",
+    "nodata":"Esperando dados...",
+    "dot": false,
+    "ymin": 0,
+    "ymax": 200,
+    "removeOlder": 600,
+    "removeOlderPoints": "",
+    "removeOlderUnit": "secs",
+    "cutout": 0,
+    "useOneColor": false,
+    "useUTC": false,
+    "colors": ["#1abc9c", "#E6E0F8", "#B6B4CB"],
+    "outputs": 1,
+    "x": 820,
+    "y": 40,
+    "wires": [[]]
+  },
+  {
+    "id": "ui_gauge_temp",
+    "type": "ui_gauge",
+    "z": "",
+    "name": "Temperatura",
+    "group": "group1",
+    "order": 2,
+    "width": 6,
+    "height": 4,
+    "gtype": "gage",
+    "title": "Temperatura (°C)",
+    "label": "°C",
+    "format": "{{value}}",
+    "min": 20,
+    "max": 45,
+    "colors": ["#2ecc71", "#f1c40f", "#e74c3c"],
+    "seg1": 37,
+    "seg2": 38,
+    "x": 830,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "ui_text_status",
+    "type": "ui_text",
+    "z": "",
+    "group": "group1",
+    "order": 3,
+    "width": 6,
+    "height": 1,
+    "name": "Status",
+    "label": "Status",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "x": 830,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "ui_led",
+    "type": "ui_template",
+    "z": "",
+    "group": "group1",
+    "name": "LED Status",
+    "order": 4,
+    "width": 6,
+    "height": 2,
+    "format": "<div style=\"display:flex;align-items:center;gap:10px\"><div style=\"width:18px;height:18px;border-radius:50%;background:{{msg.color||'#2ecc71'}};box-shadow:0 0 10px {{msg.color||'#2ecc71'}}\"></div><span>{{msg.payload}}</span></div>",
+    "storeOutMessages": false,
+    "fwdInMessages": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "x": 830,
+    "y": 200,
+    "wires": [[]]
+  },
+  {
+    "id": "debug1",
+    "type": "debug",
+    "z": "",
+    "name": "raw mqtt",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 580,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "debug2",
+    "type": "debug",
+    "z": "",
+    "name": "normalized",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 830,
+    "y": 240,
+    "wires": []
+  }
+]
