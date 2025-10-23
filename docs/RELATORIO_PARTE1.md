@@ -51,14 +51,13 @@ Arquivos relevantes:
 
 ## 4. Capturas de tela esperadas (descrever)
 
-- **Diagrama no Wokwi**
   - Mostrando `esp32-devkit-v1`, `dht22` ligado ao `GPIO 15` (VCC=3.3V, GND=GND, DATA=15), e botão no `GPIO 4` com resistor de 10k para GND e ligação ao 3.3V.
 - **Monitor serial – OFFLINE**
   - Linhas com `ENQUEUE` e crescimento de `QUEUE_SIZE`. Opcionalmente, a amostra JSON não é emitida no Serial quando offline (vai para o arquivo), apenas logs de enfileiramento.
 - **Monitor serial – ONLINE**
   - Linha JSON da amostra atual e, em seguida, `FLUSH <n>` com vários registros do backlog; `QUEUE_SIZE` tendendo a zero.
-- **Arquivo de fila (SPIFFS)**
-  - Visualização (via ferramenta SPIFFS ou logs) mostrando que o arquivo `/queue.ndjson` existe e é recriado após flush.
+  - **Arquivo de fila (SPIFFS)**
+    - Visualização (via ferramenta SPIFFS ou logs) mostrando que o arquivo `/queue.ndjson` existe e é recriado após flush.
 
 ---
 
@@ -67,3 +66,13 @@ Referências de arquivos:
 - `apps/edge-esp32/src/storage_queue.h`
 - `apps/edge-esp32/wokwi/diagram.json`
 - `apps/edge-esp32/platformio.ini`
+
+---
+
+## 5. Evidências (prints)
+
+- **Link do projeto no Wokwi**: https://wokwi.com/projects/445438493925842945
+- **Capturas a inserir:**
+  - Monitor Serial – OFFLINE (mostrar `ENQUEUE` e `QUEUE_SIZE` crescendo).
+  - Monitor Serial – ONLINE (mostrar uma linha JSON e `FLUSH <n>` com `QUEUE_SIZE` reduzindo).
+  - Diagrama Wokwi com ligações (DHT22 em GPIO 15; botão em GPIO 4 com pulldown 10k).
