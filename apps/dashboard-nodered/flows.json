@@ -1,5 +1,12 @@
 [
   {
+    "id": "flow1",
+    "type": "tab",
+    "label": "CardioIA Flow",
+    "disabled": false,
+    "info": ""
+  },
+  {
     "id": "tab1",
     "type": "ui_tab",
     "name": "CardioIA",
@@ -45,7 +52,7 @@
   {
     "id": "mqtt_in1",
     "type": "mqtt in",
-    "z": "",
+    "z": "flow1",
     "name": "Vitals MQTT",
     "topic": "cardioia/ana/v1/vitals",
     "qos": "0",
@@ -61,7 +68,7 @@
   {
     "id": "json1",
     "type": "json",
-    "z": "",
+    "z": "flow1",
     "name": "parse json",
     "property": "payload",
     "action": "obj",
@@ -73,42 +80,9 @@
   {
     "id": "fn_norm",
     "type": "function",
-    "z": "",
+    "z": "flow1",
     "name": "normalize vitals",
-    "func": "// Espera payload com {ts, temp, hum, bpm}
-var p = msg.payload || {};
-var ts = Number(p.ts)||Date.now();
-var temp = Number(p.temp);
-var hum = Number(p.hum);
-var bpm = parseInt(p.bpm,10);
-
-var status = 'OK';
-var color = '#2ecc71'; // verde
-if (temp > 38 && bpm > 120) {
-  status = 'ALTA_TEMP+TAQUICARDIA';
-  color = '#e74c3c';
-} else if (temp > 38) {
-  status = 'ALTA_TEMP';
-  color = '#e67e22'; // laranja
-} else if (bpm > 120) {
-  status = 'TAQUICARDIA';
-  color = '#e67e22';
-}
-
-// Saída 1: Chart BPM (payload numérico)
-var outChart = { payload: bpm, ts: ts };
-
-// Saída 2: Gauge Temp (payload numérico)
-var outGauge = { payload: temp };
-
-// Saída 3: Status (texto + cor)
-var outStatus = { payload: status, color: color };
-
-// Saída 4: Debug enriquecido
-msg.ts = ts; msg.temp = temp; msg.hum = hum; msg.bpm = bpm; msg.status = status; msg.color = color;
-var outDebug = msg;
-
-return [outChart, outGauge, outStatus, outDebug];",
+    "func": "// Espera payload com {ts, temp, hum, bpm}\nvar p = msg.payload || {};\nvar ts = Number(p.ts)||Date.now();\nvar temp = Number(p.temp);\nvar hum = Number(p.hum);\nvar bpm = parseInt(p.bpm,10);\n\nvar status = 'OK';\nvar color = '#2ecc71'; // verde\nif (temp > 38 && bpm > 120) {\n  status = 'ALTA_TEMP+TAQUICARDIA';\n  color = '#e74c3c';\n} else if (temp > 38) {\n  status = 'ALTA_TEMP';\n  color = '#e67e22'; // laranja\n} else if (bpm > 120) {\n  status = 'TAQUICARDIA';\n  color = '#e67e22';\n}\n\n// Saída 1: Chart BPM (payload numérico)\nvar outChart = { payload: bpm, ts: ts };\n\n// Saída 2: Gauge Temp (payload numérico)\nvar outGauge = { payload: temp };\n\n// Saída 3: Status (texto + cor)\nvar outStatus = { payload: status, color: color };\n\n// Saída 4: Debug enriquecido\nmsg.ts = ts; msg.temp = temp; msg.hum = hum; msg.bpm = bpm; msg.status = status; msg.color = color;\nvar outDebug = msg;\n\nreturn [outChart, outGauge, outStatus, outDebug];",
     "outputs": 4,
     "noerr": 0,
     "initialize": "",
@@ -116,12 +90,12 @@ return [outChart, outGauge, outStatus, outDebug];",
     "libs": [],
     "x": 580,
     "y": 80,
-    "wires": [["ui_chart_bpm"],["ui_gauge_temp"],["ui_text_status","ui_led"],["debug2"]]
+    "wires": [["ui_chart_bpm"],["ui_gauge_temp"],["ui_text_status","ui_led","switch_alert"],["debug2"]]
   },
   {
     "id": "ui_chart_bpm",
     "type": "ui_chart",
-    "z": "",
+    "z": "flow1",
     "name": "BPM",
     "group": "group1",
     "order": 1,
@@ -149,9 +123,43 @@ return [outChart, outGauge, outStatus, outDebug];",
     "wires": [[]]
   },
   {
+    "id": "switch_alert",
+    "type": "switch",
+    "z": "flow1",
+    "name": "status != OK",
+    "property": "payload",
+    "propertyType": "msg",
+    "rules": [
+      { "t": "neq", "v": "OK", "vt": "str" }
+    ],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 1,
+    "x": 820,
+    "y": 200,
+    "wires": [["ui_toast_alert"]]
+  },
+  {
+    "id": "ui_toast_alert",
+    "type": "ui_toast",
+    "z": "flow1",
+    "position": "top right",
+    "displayTime": "4",
+    "highlight": "true",
+    "sendall": false,
+    "outstanding": false,
+    "allowHTML": false,
+    "displayIcon": true,
+    "name": "Alerta",
+    "topic": "Alerta CardioIA",
+    "x": 1030,
+    "y": 200,
+    "wires": []
+  },
+  {
     "id": "ui_gauge_temp",
     "type": "ui_gauge",
-    "z": "",
+    "z": "flow1",
     "name": "Temperatura",
     "group": "group1",
     "order": 2,
@@ -173,7 +181,7 @@ return [outChart, outGauge, outStatus, outDebug];",
   {
     "id": "ui_text_status",
     "type": "ui_text",
-    "z": "",
+    "z": "flow1",
     "group": "group1",
     "order": 3,
     "width": 6,
@@ -189,7 +197,7 @@ return [outChart, outGauge, outStatus, outDebug];",
   {
     "id": "ui_led",
     "type": "ui_template",
-    "z": "",
+    "z": "flow1",
     "group": "group1",
     "name": "LED Status",
     "order": 4,
@@ -207,7 +215,7 @@ return [outChart, outGauge, outStatus, outDebug];",
   {
     "id": "debug1",
     "type": "debug",
-    "z": "",
+    "z": "flow1",
     "name": "raw mqtt",
     "active": true,
     "tosidebar": true,
@@ -224,7 +232,7 @@ return [outChart, outGauge, outStatus, outDebug];",
   {
     "id": "debug2",
     "type": "debug",
-    "z": "",
+    "z": "flow1",
     "name": "normalized",
     "active": true,
     "tosidebar": true,
