@@ -76,3 +76,17 @@ Referências de arquivos:
   - Monitor Serial – OFFLINE (mostrar `ENQUEUE` e `QUEUE_SIZE` crescendo).
   - Monitor Serial – ONLINE (mostrar uma linha JSON e `FLUSH <n>` com `QUEUE_SIZE` reduzindo).
   - Diagrama Wokwi com ligações (DHT22 em GPIO 15; botão em GPIO 4 com pulldown 10k).
+
+### Placeholders de imagem
+
+- **Serial OFFLINE**
+
+  ![Serial OFFLINE](../assets/parte1/serial_offline.png)
+
+- **Serial ONLINE (flush)**
+
+  ![Serial ONLINE](../assets/parte1/serial_online_flush.png)
+
+- **Diagrama Wokwi**
+
+  ![Diagrama Wokwi](../assets/parte1/wokwi_diagrama.png)

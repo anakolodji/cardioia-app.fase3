@@ -34,5 +34,8 @@
     ["r1:1", "esp32:4", "blue"],
     ["r1:2", "esp32:GND", "black"]
   ],
-  "dependencies": ["dht"]
+  "dependencies": [
+    "dhtesp",
+    "pubsubclient"
+  ]
 }

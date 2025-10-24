@@ -1,0 +1,5 @@
+# Wokwi Library Manager - required Arduino libraries
+# One library per line. Wokwi will fetch them automatically.
+
+PubSubClient
+DHT sensor library for ESPx

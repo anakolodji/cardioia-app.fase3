@@ -7,6 +7,20 @@
     "info": ""
   },
   {
+    "id": "tls1",
+    "type": "tls-config",
+    "name": "HiveMQ Cloud TLS (insecure)",
+    "cert": "",
+    "key": "",
+    "ca": "",
+    "certname": "",
+    "keyname": "",
+    "caname": "",
+    "servername": "",
+    "verifyservercert": false,
+    "alpnprotocol": ""
+  },
+  {
     "id": "tab1",
     "type": "ui_tab",
     "name": "CardioIA",
@@ -27,11 +41,12 @@
   {
     "id": "mqtt_broker1",
     "type": "mqtt-broker",
-    "name": "HiveMQ Public",
-    "broker": "broker.hivemq.com",
-    "port": 1883,
-    "clientid": "",
-    "usetls": false,
+    "name": "HiveMQ Cloud",
+    "broker": "185a5dc3e6434acf93f3c4da0ae7f24d.s1.eu.hivemq.cloud",
+    "port": 8883,
+    "clientid": "cardioia-nodered",
+    "usetls": true,
+    "tls": "tls1",
     "protocolVersion": "4",
     "keepalive": "60",
     "cleansession": true,

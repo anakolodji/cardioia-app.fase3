@@ -1,0 +1,10 @@
+#pragma once
+// Preencha e salve como config.h (no mesmo diretório). Não versionar.
+
+#define WIFI_SSID      "Wokwi-GUEST"     // ou seu Wi-Fi
+#define WIFI_PASS      ""
+
+#define MQTT_HOST      "SEU_CLUSTER.s1.eu.hivemq.cloud"
+#define MQTT_PORT      8883
+#define MQTT_USER      "SEU_USUARIO"
+#define MQTT_PASS      "SUA_SENHA"

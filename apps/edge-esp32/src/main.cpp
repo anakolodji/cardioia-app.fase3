@@ -1,11 +1,16 @@
 #include <Arduino.h>
 #include <DHTesp.h>
-#include <FS.h>
-#include <SPIFFS.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 
-#include "storage_queue.h"
+// Credenciais e host via macros em config.h (não versionado)
+// Crie src/config.h com seus dados a partir de config.h.example
+// e NUNCA commit seu config.h.
+// Ex.: #define WIFI_SSID "..."  #define WIFI_PASS "..."
+//      #define MQTT_HOST "..."  #define MQTT_PORT 8883
+//      #define MQTT_USER "..."  #define MQTT_PASS "..."
+
 
 // --- Configurações de pinos ---
 static const int PIN_DHT = 15;     // DHT22 no GPIO 15
@@ -15,14 +20,26 @@ static const int PIN_BTN = 4;      // Botão no GPIO 4 (pull-down externo)
 static const uint32_t DHT_INTERVAL_MS = 2000;   // leitura a cada 2s
 static const uint32_t BPM_WINDOW_MS  = 10000;  // janela de 10s
 
-// --- Capacidade da fila ---
-static const size_t QUEUE_MAX_LINES = 10000;
-
-// --- WiFi/MQTT ---
-static const char* WIFI_SSID = "Wokwi-GUEST";   // altere para seu SSID em hardware real
-static const char* WIFI_PASS = "";              // senha
-static const char* MQTT_HOST = "broker.hivemq.com";
-static const uint16_t MQTT_PORT = 1883;
+// --- WiFi/MQTT (via config.h) ---
+#include "config.h"
+#ifndef WIFI_SSID
+#define WIFI_SSID "Wokwi-GUEST"   // default para Wokwi
+#endif
+#ifndef WIFI_PASS
+#define WIFI_PASS ""
+#endif
+#ifndef MQTT_HOST
+#define MQTT_HOST "185a5dc3e6434acf93f3c4da0ae7f24d.s1.eu.hivemq.cloud"
+#endif
+#ifndef MQTT_PORT
+#define MQTT_PORT 8883
+#endif
+#ifndef MQTT_USER
+#define MQTT_USER ""
+#endif
+#ifndef MQTT_PASS
+#define MQTT_PASS ""
+#endif
 static const char* MQTT_TOPIC = "cardioia/ana/v1/vitals";
 
 // --- Estado global ---
@@ -41,12 +58,51 @@ float lastTemp = NAN;
 float lastHum  = NAN;
 int lastBpm    = 0;
 
-// MQTT client
-WiFiClient wifiClient;
-PubSubClient mqtt(wifiClient);
+// MQTT client (TLS)
+WiFiClientSecure tlsClient;
+PubSubClient mqtt(tlsClient);
 unsigned long mqttBackoffMs = 1000;     // backoff inicial 1s
 unsigned long mqttNextRetry = 0;        // millis para próxima tentativa
 String mqttClientId;
+
+// --- Fila em RAM (offline buffer) ---
+static const size_t RAM_QUEUE_MAX = 200; // ~200 amostras (~33 minutos em janelas de 10s)
+String ramQueue[RAM_QUEUE_MAX];
+size_t ramHead = 0, ramTail = 0, ramCount = 0;
+
+void ramEnqueue(const String& line) {
+  if (ramCount == RAM_QUEUE_MAX) {
+    // descarta a mais antiga (ring buffer)
+    ramTail = (ramTail + 1) % RAM_QUEUE_MAX;
+    ramCount--;
+  }
+  ramQueue[ramHead] = line;
+  ramHead = (ramHead + 1) % RAM_QUEUE_MAX;
+  ramCount++;
+}
+
+size_t ramFlushPublish() {
+  size_t sent = 0;
+  while (ramCount > 0 && mqtt.connected()) {
+    String line = ramQueue[ramTail];
+    ramTail = (ramTail + 1) % RAM_QUEUE_MAX;
+    ramCount--;
+    bool ok = mqtt.publish(MQTT_TOPIC, line.c_str());
+    if (ok) {
+      sent++;
+    } else {
+      // se falhar, interrompe para tentar depois
+      // reposiciona ponteiro para tentar novamente no futuro
+      ramTail = (ramTail + RAM_QUEUE_MAX - 1) % RAM_QUEUE_MAX;
+      ramCount++;
+      break;
+    }
+  }
+  if (sent > 0) {
+    Serial.print(F("RAM_FLUSH ")); Serial.println((unsigned long)sent);
+  }
+  return sent;
+}
 
 // --- ISR de pulso no botão (conta borda de subida) ---
 void IRAM_ATTR onButtonChange() {
@@ -66,6 +122,12 @@ void readDhtIfDue() {
     if (!isnan(th.temperature) && !isnan(th.humidity)) {
       lastTemp = th.temperature;
       lastHum  = th.humidity;
+      // Exibe leituras no Serial Monitor (Wokwi)
+      Serial.print(F("TEMP(")); Serial.print(PIN_DHT); Serial.print(F(")= "));
+      Serial.print(lastTemp, 2);
+      Serial.print(F(" °C  HUM= "));
+      Serial.print(lastHum, 2);
+      Serial.println(F(" %"));
     } else {
       // Mantém últimos valores válidos
     }
@@ -128,7 +190,7 @@ void mqttEnsureConnected() {
   if (mqtt.connected()) return;
   if (now < mqttNextRetry) return;
 
-  if (mqtt.connect(mqttClientId.c_str())) {
+  if (mqtt.connect(mqttClientId.c_str(), MQTT_USER, MQTT_PASS)) {
     Serial.println(F("MQTT_CONNECTED"));
     mqttBackoffMs = 1000; // reset backoff
   } else {
@@ -154,24 +216,6 @@ void mqttPublishLineIfPossible(const String& line) {
   else Serial.println(F("MQTT_PUBLISH_FAIL"));
 }
 
-size_t flushQueueSerialAndMqtt(Stream& out) {
-  if (!SPIFFS.exists(QUEUE_FILE)) return 0; // usa path do header
-  File f = SPIFFS.open(QUEUE_FILE, FILE_READ);
-  if (!f) return 0;
-  size_t count = 0;
-  while (f.available()) {
-    String line = f.readStringUntil('\n');
-    if (line.length() == 0) continue;
-    out.println(line);
-    mqttPublishLineIfPossible(line);
-    count++;
-  }
-  f.close();
-  SPIFFS.remove(QUEUE_FILE);
-  ensureQueueFile();
-  return count;
-}
-
 // --- Processa comandos seriais ---
 void handleSerialCommands() {
   while (Serial.available()) {
@@ -180,35 +224,27 @@ void handleSerialCommands() {
     if (cmd.equalsIgnoreCase("ONLINE")) {
       CONNECTED = true;
       Serial.println(F("[STATE] CONNECTED=true (ONLINE)"));
-      // Tenta conectar WiFi/MQTT e faz flush combinado
+      // Tenta conectar WiFi/MQTT (TLS)
       ensureWifiIfConnected();
       mqttEnsureConnected();
-      size_t sent = flushQueueSerialAndMqtt(Serial);
-      Serial.print(F("FLUSH ")); Serial.println((unsigned long)sent);
-      size_t qsz = getQueueSizeLines();
-      Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)qsz);
+      // Tenta flush do buffer em RAM, se já conectado
+      if (mqtt.connected()) {
+        ramFlushPublish();
+      }
     } else if (cmd.equalsIgnoreCase("OFFLINE")) {
       CONNECTED = false;
       Serial.println(F("[STATE] CONNECTED=false (OFFLINE)"));
-      size_t qsz = getQueueSizeLines();
-      Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)qsz);
     } else if (cmd.length() > 0) {
       Serial.print(F("[WARN] Unknown command: ")); Serial.println(cmd);
     }
   }
 }
-
 void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println(F("Booting..."));
-
-  // Inicializa SPIFFS e cria fila
-  if (!initStorage()) {
-    Serial.println(F("[ERROR] SPIFFS init failed"));
-  } else {
-    Serial.println(F("[OK] SPIFFS ready"));
-  }
+  Serial.println(F("Digite ONLINE no Serial para conectar WiFi+MQTT (TLS)."));
+  Serial.println(F("Clique rápido no botão (GPIO4) para aumentar BPM; ajuste o DHT22 > 38 °C para alerta."));
 
   // Pinos
   pinMode(PIN_BTN, INPUT); // botão com pull-down externo
@@ -219,12 +255,10 @@ void setup() {
   dht.setup(PIN_DHT, DHTesp::DHT22);
 
   // Tempos
-  lastDhtRead = 0;
   windowStart = millis();
 
-  // Estado inicial da fila
-  ensureQueueFile();
-  Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)getQueueSizeLines());
+  // TLS sem verificação de certificado (demo). Em produção, configure a CA.
+  tlsClient.setInsecure();
 }
 
 void loop() {
@@ -247,31 +281,19 @@ void loop() {
     String json = makeSampleJson(ts, lastTemp, lastHum, lastBpm, CONNECTED);
 
     if (CONNECTED) {
-      // Opção A: sempre enfileira a amostra e depois faz flush total
-      size_t afterSz = 0;
-      if (enqueueLine(json, QUEUE_MAX_LINES, afterSz)) {
-        Serial.println(F("ENQUEUE"));
-      } else {
-        Serial.println(F("[ERROR] ENQUEUE failed"));
+      // Publica diretamente na nuvem (MQTT) e loga no Serial
+      Serial.print(F("BPM janela= ")); Serial.println(lastBpm);
+      Serial.println(json);
+      // Primeiro tenta limpar backlog em RAM
+      if (mqtt.connected()) {
+        ramFlushPublish();
       }
-
-      // Publica amostra atual também via MQTT (já enfileirada)
       mqttPublishLineIfPossible(json);
-
-      // Envia backlog (Serial + MQTT) e limpa arquivo
-      size_t sent = flushQueueSerialAndMqtt(Serial);
-      Serial.print(F("FLUSH ")); Serial.println((unsigned long)sent);
-      size_t qsz = getQueueSizeLines();
-      Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)qsz);
     } else {
-      // Armazena localmente
-      size_t afterSz = 0;
-      if (enqueueLine(json, QUEUE_MAX_LINES, afterSz)) {
-        Serial.println(F("ENQUEUE"));
-        Serial.print(F("QUEUE_SIZE ")); Serial.println((unsigned long)afterSz);
-      } else {
-        Serial.println(F("[ERROR] ENQUEUE failed"));
-      }
+      // Offline: enfileira em RAM
+      ramEnqueue(json);
+      Serial.print(F("BPM janela= ")); Serial.println(lastBpm);
+      Serial.print(F("[OFFLINE] queued RAM size=")); Serial.println((unsigned long)ramCount);
     }
   }
 }

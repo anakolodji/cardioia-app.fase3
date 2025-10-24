@@ -153,3 +153,17 @@ A seguir, um guia para encaminhar os dados recebidos pelo Node-RED ao Grafana Cl
   - Dashboard Node-RED com gráfico BPM, gauge Temp, LED de status e toast de alerta.
   - HiveMQ WebSocket Client com mensagens no tópico `cardioia/ana/v1/vitals`.
   - Opcional: painéis do Grafana Cloud lendo do InfluxDB (`vitals.temp`, `vitals.bpm`).
+
+### Placeholders de imagem
+
+- **Dashboard Node-RED**
+
+  ![Dashboard Node-RED](../assets/parte2/nodered_dashboard.png)
+
+- **HiveMQ WebSocket Client**
+
+  ![HiveMQ WebSocket](../assets/parte2/hivemq_ws.png)
+
+- **Grafana Cloud (opcional)**
+
+  ![Grafana Painéis](../assets/parte2/grafana_dashboards.png)
