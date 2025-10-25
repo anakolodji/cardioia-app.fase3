@@ -1,56 +1,43 @@
 # Edge ESP32 (CardioIA)
 
-Este diretório contém o firmware (Arduino Framework) para o ESP32 DevKit V1, além do diagrama do Wokwi para simulação. O código coleta temperatura/umidade (DHT22) e batimentos (botão) e realiza buffering resiliente em SPIFFS quando offline.
+Este diretório contém o firmware (Arduino Framework) para o ESP32 DevKit V1, além do diagrama do Wokwi. O código coleta temperatura/umidade (DHT22) e batimentos (botão) e faz buffer em RAM quando offline, publicando o backlog quando a rede/MQTT conectam.
 
-- Código-fonte: `src/main.cpp`, `src/storage_queue.h`
-- Simulação: `wokwi/diagram.json`
-- Build local: `platformio.ini`
+- Código-fonte: `apps/edge-esp32/src/main.cpp`
+- Simulação: `apps/edge-esp32/wokwi/diagram.json`
+- Build local: `apps/edge-esp32/platformio.ini`
 
 ## Funcionalidades
 - Leitura DHT22 a cada 2s (GPIO 15).
 - Detecção de batimentos por botão (GPIO 4), janela de 10s → `BPM = pulsos * 6`.
 - Amostra JSON linha única: `{"ts":<millis>,"temp":<C>,"hum":<%>,"bpm":<int>,"connected":<bool>}`.
-- Resiliência: quando offline, as amostras vão para `SPIFFS:/queue.ndjson` (NDJSON com ring buffer de 10.000 linhas). Quando online, envia backlog e limpa.
+- Resiliência: quando offline, amostras vão para fila em RAM (ring buffer). Quando online, envia backlog e a amostra atual.
 - Comandos seriais: `ONLINE` / `OFFLINE`.
-- Logs: `ENQUEUE`, `FLUSH <n>`, `QUEUE_SIZE <n>`.
+- Logs: `RAM_FLUSH <n>`, `MQTT_CONNECTED`, `MQTT_PUBLISH_OK`.
 
-## Rodando no Wokwi
-1. Abra `apps/edge-esp32/wokwi/diagram.json` no Wokwi (Web ou extensão VSCode).
-2. Componentes:
-   - `esp32-devkit-v1`.
-   - `dht22` com `DATA -> GPIO 15`, `VCC -> 3.3V`, `GND -> GND`.
-   - Botão no `GPIO 4` com pull-down: um terminal ao `GPIO 4`, outro ao `3.3V`, resistor `10k` de `GPIO 4` a `GND`.
-3. Inicie a simulação.
-4. Abra o monitor serial (115200 baud).
-5. Use os comandos:
-   - Digite `OFFLINE` e pressione Enter.
-     - Aguarde 10s (uma janela) para ver `ENQUEUE` e `QUEUE_SIZE` crescer.
-   - Digite `ONLINE` e pressione Enter.
-     - Deve aparecer a amostra atual e `FLUSH <n>` com esvaziamento do backlog; `QUEUE_SIZE` deve reduzir.
-6. Para simular batimentos, pressione o botão. Cada pressão (borda de subida) contará como 1 pulso.
+## Segredos (config.h)
+- Crie `apps/edge-esp32/src/config.h` a partir de `config.h.example`. Não versionar.
+- Define: `WIFI_SSID`, `WIFI_PASS`, `MQTT_HOST`, `MQTT_PORT` (8883 para HiveMQ Cloud/TLS), `MQTT_USER`, `MQTT_PASS`.
+
+## Rodando no Wokwi (apenas Serial)
+1. Abra `apps/edge-esp32/wokwi/diagram.json`.
+2. Componentes: `esp32-devkit-v1`, `dht22` (DATA→GPIO 15), botão (GPIO 4 com pulldown 10k).
+3. Start → abra Serial Monitor 115200.
+4. Digite `ONLINE` para conectar (ou `OFFLINE` para simular fila em RAM).
+5. A cada ~10s imprime BPM, leitura DHT e a linha JSON. Se online, publica (ver `MQTT_PUBLISH_OK`).
 
 Observações (Wokwi):
-- `dependencies: ["dht"]` já está no `diagram.json`.
-- O botão gera `HIGH` no GPIO 4 quando pressionado (por ligação ao 3.3V e pull-down de 10k a GND).
+- `wokwi/libraries.txt`: `PubSubClient`, `DHT sensor library for ESPx`.
+- Se usar o Wokwi Web e não quiser subir o `config.h` com segredos, teste somente Serial (sem MQTT) ou use usuário temporário.
 
 ## Rodando localmente (PlatformIO)
 Pré-requisitos:
-- VSCode + extensão PlatformIO
-- Placa: ESP32 DevKit V1 (ou compatível)
+- VSCode + PlatformIO
+- Placa: ESP32 DevKit V1
 
 Passos:
-1. Abra a pasta `apps/edge-esp32/` no VSCode (como projeto PlatformIO).
-2. Conecte a placa via USB.
-3. Verifique `platformio.ini`:
-   - `board = esp32dev`
-   - `framework = arduino`
-   - `lib_deps = beegee_tokyo/DHT sensor library for ESPx`
-4. Compile (PlatformIO: Build) e faça upload (Upload).
-5. Abra o monitor serial (115200) e interaja com os comandos `ONLINE` / `OFFLINE`.
-
-Fiação no hardware real (se necessário):
-- DHT22: `VCC -> 3.3V`, `GND -> GND`, `DATA -> GPIO 15` (use resistor de pull-up de 10k para 3.3V, se seu módulo não tiver interno).
-- Botão: um terminal ao `GPIO 4`, outro ao `3.3V`, resistor `10k` de `GPIO 4` para `GND` (pull-down).
+1. Abrir `apps/edge-esp32/` no VSCode.
+2. Build/Upload (PlatformIO).
+3. Monitor Serial 115200 → comandos `ONLINE` / `OFFLINE`.
 
 ## Formato de saída e logs
 Exemplo de amostra:
@@ -59,24 +46,31 @@ Exemplo de amostra:
 ```
 Logs auxiliares:
 ```
-ENQUEUE
-FLUSH 42
-QUEUE_SIZE 58
-[STATE] CONNECTED=true (ONLINE)
+RAM_FLUSH 42
+MQTT_CONNECTED
+MQTT_PUBLISH_OK
 ```
 
-## Estrutura de arquivos
+## Estrutura
 ```
 apps/edge-esp32/
 ├─ src/
 │  ├─ main.cpp
-│  └─ storage_queue.h
+│  ├─ config.h.example
+│  └─ config.h            # não versionar
 ├─ wokwi/
-│  └─ diagram.json
+│  ├─ diagram.json
+│  └─ libraries.txt
 └─ platformio.ini
 ```
 
+## Onde salvar os prints
+- Conectividade HiveMQ Cloud (cliente MQTT, ex.: MQTT Explorer, conectado via TLS 8883, publish/subscribe funcionando): `assets/parte1/`
+- Envio via Node-RED (Inject → MQTT Out → recebido no HiveMQ Cloud): `assets/parte1/`
+- Serial do Wokwi/ESP32 mostrando BPM/JSON/ONLINE: `assets/parte2/`
+- Observação: se o dashboard não renderizou no seu ambiente, inclua prints dos nós `debug` (raw/normalized) e do broker “connected”.
+
 ## Solução de problemas
-- `SPIFFS init failed`: verifique partições e suporte SPIFFS da placa. No primeiro boot, a formatação automática é tentada.
-- Sem leituras do DHT: confira o pino (GPIO 15) e alimentação (3.3V). Em hardware, pode ser necessário pull-up no DATA.
-- BPM sempre 0: verifique o botão e o fio no `GPIO 4`. O contador incrementa em cada borda de subida.
+- Bibliotecas Wokwi: use `PubSubClient` e `DHT sensor library for ESPx` em `libraries.txt`.
+- Sem leituras do DHT: revisar pino (15) e alimentação. Em hardware, pode precisar pull-up no DATA.
+- BPM sempre 0: checar ligação do botão (GPIO 4) e pulldown 10k.

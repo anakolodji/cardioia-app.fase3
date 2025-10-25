@@ -1,6 +1,6 @@
 # Relatório – Parte 2 (MQTT + Node-RED + Dashboard/Alertas)
 
-Este relatório detalha a arquitetura de telemetria em tempo (quase) real da solução CardioIA para a Parte 2: publicação via MQTT a partir do ESP32 (Wokwi), consumo no Node-RED, visualização em dashboard e alertas, além de um guia para envio dos dados ao Grafana Cloud utilizando InfluxDB como destino.
+Este relatório detalha a arquitetura de telemetria em tempo (quase) real da solução CardioIA para a Parte 2: publicação via MQTT a partir do ESP32 (Wokwi), consumo no Node-RED, visualização em dashboard e alertas, além de um guia para envio dos dados ao Grafana Cloud utilizando InfluxDB como destino. A comunicação MQTT utiliza HiveMQ Cloud com TLS (porta 8883).
 
 ## 1. Diagrama do fluxo MQTT
 
@@ -9,11 +9,11 @@ flowchart LR
   subgraph Edge[ESP32]
     A[Coleta: DHT22 + Pulsos (BPM)] --> B[JSON/NDJSON]
     B --> C[MQTT Publish (QoS0)]
-    B -. OFFLINE .-> D[SPIFFS queue.ndjson]
+    B -. OFFLINE .-> D[RAM Buffer]
     D -. ONLINE/Flush .-> C
   end
 
-  C -->|broker.hivemq.com:1883| E[(MQTT Broker)]
+  C -->|HiveMQ Cloud:8883 (TLS)| E[(MQTT Broker)]
   E --> F[Node-RED]
   F --> G[Dashboard (ui_chart/ui_gauge/ui_text+LED)]
   F --> H[Alertas (toast/status)]
@@ -22,8 +22,8 @@ flowchart LR
 
 - **ESP32** (`apps/edge-esp32/src/main.cpp`):
   - Publica JSON no tópico `cardioia/ana/v1/vitals` quando `CONNECTED=true` (WiFi+MQTT).
-  - Resiliência: enfileira todas as amostras em `SPIFFS:/queue.ndjson` (Opção A) e faz flush quando online (Serial + MQTT).
-- **Broker**: `broker.hivemq.com:1883` (público, sem TLS).
+  - Resiliência: enfileira amostras em um buffer em RAM (ring buffer) e faz flush quando online (Serial + MQTT). Conexão MQTT sobre TLS usando `WiFiClientSecure` com `setInsecure()` para demo.
+- **Broker**: HiveMQ Cloud (porta 8883, TLS).
 - **Node-RED** (`apps/dashboard-nodered/flows.json`):
   - Consome do tópico, normaliza campos, alimenta Dashboard e dispara alertas.
   - Pode encaminhar os dados para InfluxDB/Grafana.
@@ -129,18 +129,18 @@ A seguir, um guia para encaminhar os dados recebidos pelo Node-RED ao Grafana Cl
 - Tenha um nó de buffer/retry no Node-RED se o Influx estiver offline (ex.: `delay`/`file`), se necessário.
 
 ## 5. Considerações de segurança e limites
-- O broker público (`broker.hivemq.com:1883`) é apenas para demonstração.
-  - Em produção: utilize broker próprio com TLS, autenticação (username/password, certificados), ACL de tópicos e retenção adequada.
+- O ambiente usa HiveMQ Cloud com TLS (porta 8883) para demonstração.
+  - Em produção: utilize TLS com verificação de certificado (em vez de `setInsecure()`), autenticação (username/password, certificados), ACL de tópicos e retenção adequada.
 - QoS 0 é suficiente para demo; para produção, avalie QoS 1/2 e custos de latência/armazenamento.
 - Dados sensíveis de saúde devem ser tratados conforme LGPD/HIPAA (~PII, criptografia, retenção, consentimento).
 
 ## 6. Referências
-- Código ESP32: `apps/edge-esp32/src/main.cpp`, `apps/edge-esp32/src/storage_queue.h`, `apps/edge-esp32/platformio.ini`
+- Código ESP32: `apps/edge-esp32/src/main.cpp`, `apps/edge-esp32/platformio.ini`
 - Flow Node-RED: `apps/dashboard-nodered/flows.json`
 - Documentação:
   - PubSubClient: https://pubsubclient.knolleary.net/
   - Node-RED Dashboard: https://flows.nodered.org/node/node-red-dashboard
-  - HiveMQ Public Broker: https://www.hivemq.com/public-mqtt-broker/
+  - HiveMQ Cloud: https://www.hivemq.com/mqtt-cloud-broker/
   - InfluxDB v2: https://docs.influxdata.com/
   - Grafana Cloud: https://grafana.com/products/cloud/
 
@@ -151,7 +151,7 @@ A seguir, um guia para encaminhar os dados recebidos pelo Node-RED ao Grafana Cl
 - **Link do projeto no Wokwi**: https://wokwi.com/projects/445438493925842945
 - **Capturas a inserir:**
   - Dashboard Node-RED com gráfico BPM, gauge Temp, LED de status e toast de alerta.
-  - HiveMQ WebSocket Client com mensagens no tópico `cardioia/ana/v1/vitals`.
+  - Cliente MQTT (ex.: MQTT Explorer) conectado ao tópico `cardioia/ana/v1/vitals` no HiveMQ Cloud.
   - Opcional: painéis do Grafana Cloud lendo do InfluxDB (`vitals.temp`, `vitals.bpm`).
 
 ### Placeholders de imagem
@@ -160,9 +160,9 @@ A seguir, um guia para encaminhar os dados recebidos pelo Node-RED ao Grafana Cl
 
   ![Dashboard Node-RED](../assets/parte2/nodered_dashboard.png)
 
-- **HiveMQ WebSocket Client**
+- **Cliente MQTT (MQTT Explorer)**
 
-  ![HiveMQ WebSocket](../assets/parte2/hivemq_ws.png)
+  ![MQTT Explorer](../assets/parte2/mqtt_explorer.png)
 
 - **Grafana Cloud (opcional)**
 

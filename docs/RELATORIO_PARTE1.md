@@ -1,6 +1,6 @@
 # Relatório – Parte 1 (Edge ESP32)
 
-Este relatório descreve a arquitetura e o funcionamento do módulo de borda (ESP32) do projeto CardioIA, cobrindo o fluxo de coleta, a fila persistente e o mecanismo de flush; a estratégia de resiliência com limitação de armazenamento; e como simular estados ONLINE/OFFLINE via monitor serial. Ao final, descrevemos as capturas de tela esperadas.
+Este relatório descreve a arquitetura e o funcionamento do módulo de borda (ESP32) do projeto CardioIA, cobrindo o fluxo de coleta, o buffer offline em RAM e o mecanismo de flush para a nuvem via MQTT; a estratégia de resiliência com limitação do buffer; e como simular estados ONLINE/OFFLINE via monitor serial. Ao final, descrevemos as capturas de tela esperadas.
 
 ## 1. Fluxo de coleta → fila → flush
 
@@ -14,56 +14,53 @@ Este relatório descreve a arquitetura e o funcionamento do módulo de borda (ES
     ```
   - `ts` é o timestamp local em milissegundos desde o boot (`millis()`).
 - **Decisão de destino**
-  - Se `CONNECTED = true`: a amostra corrente é enviada via `Serial.println()` e, em seguida, é executado `flushQueue()` para enviar todo o backlog persistido, limpando o arquivo após envio.
-  - Se `CONNECTED = false`: a amostra é adicionada a um arquivo NDJSON (`/queue.ndjson`) em SPIFFS por meio de `enqueueLine()`.
-- **Logs no Serial**
-  - `ENQUEUE`: amostra armazenada localmente com sucesso.
-  - `FLUSH <n>`: foram enviados `<n>` registros do backlog (após ficar online ou manualmente durante loop online).
-  - `QUEUE_SIZE <n>`: tamanho atual (linhas) da fila persistente.
+  - Se `CONNECTED = true`: a amostra corrente é publicada via MQTT (TLS) e registrada no Serial. Antes, o dispositivo tenta dar flush do backlog em RAM se o MQTT já estiver conectado.
+  - Se `CONNECTED = false`: a amostra é adicionada a um buffer em RAM (ring buffer) que mantém as amostras mais recentes.
+- **Logs no Serial (atuais)**
+  - `RAM_FLUSH <n>`: foram enviados `<n>` registros do backlog do buffer em RAM.
+  - `MQTT_CONNECTED` / `MQTT_CONNECT_FAIL`: status da conexão MQTT.
+  - `MQTT_PUBLISH_OK` / `MQTT_PUBLISH_FAIL`: resultado da publicação.
+  - `[OFFLINE] queued RAM size=<n>`: tamanho atual do buffer em RAM quando offline.
 
 Arquivos relevantes:
 - Código principal: `apps/edge-esp32/src/main.cpp`
-- Utilitários de fila: `apps/edge-esp32/src/storage_queue.h`
 - Diagrama Wokwi: `apps/edge-esp32/wokwi/diagram.json`
 
 ## 2. Estratégia de resiliência e restrição de armazenamento
 
-- **Resiliência a desconexões**
-  - O sistema trabalha em modo store-and-forward: quando offline, cada amostra é persistida em SPIFFS (formato NDJSON). Quando retoma `ONLINE`, o backlog é enviado e o arquivo é limpo (flush bem-sucedido).
-- **Limite de armazenamento (10.000 amostras)**
-  - Para evitar exaustão de espaço em SPIFFS, foi definido um limite de 10.000 linhas (amostras). Ao exceder, as linhas mais antigas são descartadas (ring buffer por linhas), preservando as amostras mais recentes.
+- **Resiliência a desconexões (RAM)**
+  - O sistema trabalha em modo store-and-forward com buffer em RAM: quando offline, cada amostra é mantida em uma fila circular na memória. Quando retoma `ONLINE` e o MQTT conecta, o backlog é enviado (`RAM_FLUSH <n>`), seguido do envio da amostra atual.
+- **Limite do buffer (200 amostras)**
+  - Para limitar o uso de memória, o buffer em RAM mantém no máximo 200 amostras mais recentes. Ao exceder, as mais antigas são descartadas (ring buffer).
   - Justificativa:
-    - Em janelas de 10s, temos até ~6 amostras/minuto (na prática, 1 amostra por janela de 10s). Com limite de 10.000, o buffer cobre muitas horas/dias de coleta, a depender da cadência e disponibilidade de rede.
-    - Mantém o consumo de flash previsível e evita fragmentação excessiva.
-    - Simplicidade operacional: o mecanismo por linhas é robusto e de fácil limpeza após flush.
+    - Simplicidade e velocidade (sem uso de flash) para a demonstração.
+    - 200 janelas de 10s cobrem ~33 minutos de coleta contínua.
+    - Evita desgaste e gerenciamento de SPIFFS nesta fase da solução.
 
 ## 3. Simulação de ONLINE/OFFLINE via monitor serial
 
 - Comandos suportados (terminados por Enter):
-  - `ONLINE` → `CONNECTED = true` e execução imediata de `flushQueue()`.
-  - `OFFLINE` → `CONNECTED = false` (amostras seguintes vão para a fila em SPIFFS).
+  - `ONLINE` → `CONNECTED = true` e tentativa imediata de conectar WiFi/MQTT (TLS). Se conectado, executa flush do buffer em RAM.
+  - `OFFLINE` → `CONNECTED = false` (amostras seguintes vão para o buffer em RAM).
 - Passo a passo sugerido:
   1. Inicie o monitor serial a 115200 baud.
   2. Digite `OFFLINE` e pressione Enter.
-  3. Aguarde 10s (fechamento de 1 janela) e observe `ENQUEUE` e `QUEUE_SIZE` crescendo.
+  3. Aguarde 10s (fechamento de 1 janela) e observe `[OFFLINE] queued RAM size=<n>` crescendo.
   4. Pressione o botão algumas vezes durante a janela para simular batimentos.
-  5. Digite `ONLINE` e pressione Enter: observe a emissão da amostra atual e `FLUSH <n>` (backlog), seguido de `QUEUE_SIZE` reduzindo.
+  5. Digite `ONLINE` e pressione Enter: observe a emissão da amostra atual e `RAM_FLUSH <n>` (backlog).
 
 ## 4. Capturas de tela esperadas (descrever)
 
   - Mostrando `esp32-devkit-v1`, `dht22` ligado ao `GPIO 15` (VCC=3.3V, GND=GND, DATA=15), e botão no `GPIO 4` com resistor de 10k para GND e ligação ao 3.3V.
 - **Monitor serial – OFFLINE**
-  - Linhas com `ENQUEUE` e crescimento de `QUEUE_SIZE`. Opcionalmente, a amostra JSON não é emitida no Serial quando offline (vai para o arquivo), apenas logs de enfileiramento.
+  - Linhas com `[OFFLINE] queued RAM size=<n>` crescendo.
 - **Monitor serial – ONLINE**
-  - Linha JSON da amostra atual e, em seguida, `FLUSH <n>` com vários registros do backlog; `QUEUE_SIZE` tendendo a zero.
-  - **Arquivo de fila (SPIFFS)**
-    - Visualização (via ferramenta SPIFFS ou logs) mostrando que o arquivo `/queue.ndjson` existe e é recriado após flush.
+  - Linha JSON da amostra atual e, em seguida, `RAM_FLUSH <n>` com vários registros do backlog.
 
 ---
 
 Referências de arquivos:
 - `apps/edge-esp32/src/main.cpp`
-- `apps/edge-esp32/src/storage_queue.h`
 - `apps/edge-esp32/wokwi/diagram.json`
 - `apps/edge-esp32/platformio.ini`
 
@@ -73,8 +70,8 @@ Referências de arquivos:
 
 - **Link do projeto no Wokwi**: https://wokwi.com/projects/445438493925842945
 - **Capturas a inserir:**
-  - Monitor Serial – OFFLINE (mostrar `ENQUEUE` e `QUEUE_SIZE` crescendo).
-  - Monitor Serial – ONLINE (mostrar uma linha JSON e `FLUSH <n>` com `QUEUE_SIZE` reduzindo).
+  - Monitor Serial – OFFLINE (mostrar `[OFFLINE] queued RAM size=<n>` crescendo).
+  - Monitor Serial – ONLINE (mostrar uma linha JSON e `RAM_FLUSH <n>`).
   - Diagrama Wokwi com ligações (DHT22 em GPIO 15; botão em GPIO 4 com pulldown 10k).
 
 ### Placeholders de imagem

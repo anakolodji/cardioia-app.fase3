@@ -260,5 +260,85 @@
     "x": 830,
     "y": 240,
     "wires": []
+  },
+  {
+    "id": "inj_ok",
+    "z": "flow1",
+    "type": "inject",
+    "name": "Publish OK",
+    "props": [
+      {"p":"payload"}
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": {
+      "ts": 123456,
+      "temp": 36.8,
+      "hum": 51.2,
+      "bpm": 78,
+      "connected": true
+    },
+    "payloadType": "json",
+    "x": 140,
+    "y": 360,
+    "wires": [["json_to_str"]]
+  },
+  {
+    "id": "inj_alert",
+    "z": "flow1",
+    "type": "inject",
+    "name": "Publish ALERTA",
+    "props": [
+      {"p":"payload"}
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": {
+      "ts": 123457,
+      "temp": 38.6,
+      "hum": 50.0,
+      "bpm": 132,
+      "connected": true
+    },
+    "payloadType": "json",
+    "x": 150,
+    "y": 420,
+    "wires": [["json_to_str"]]
+  },
+  {
+    "id": "json_to_str",
+    "type": "json",
+    "z": "flow1",
+    "name": "stringify payload",
+    "property": "payload",
+    "action": "str",
+    "pretty": false,
+    "x": 330,
+    "y": 390,
+    "wires": [["mqtt_out1"]]
+  },
+  {
+    "id": "mqtt_out1",
+    "z": "flow1",
+    "type": "mqtt out",
+    "name": "Publish to HiveMQ Cloud",
+    "topic": "cardioia/ana/v1/vitals",
+    "qos": "1",
+    "retain": "",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "mqtt_broker1",
+    "x": 460,
+    "y": 390,
+    "wires": []
   }
 ]
