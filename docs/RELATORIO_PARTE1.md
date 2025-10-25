@@ -66,24 +66,7 @@ Referências de arquivos:
 
 ---
 
-## 5. Evidências (prints)
-
+## 5. Evidências 
 - **Link do projeto no Wokwi**: https://wokwi.com/projects/445438493925842945
-- **Capturas a inserir:**
-  - Monitor Serial – OFFLINE (mostrar `[OFFLINE] queued RAM size=<n>` crescendo).
-  - Monitor Serial – ONLINE (mostrar uma linha JSON e `RAM_FLUSH <n>`).
-  - Diagrama Wokwi com ligações (DHT22 em GPIO 15; botão em GPIO 4 com pulldown 10k).
 
-### Placeholders de imagem
 
-- **Serial OFFLINE**
-
-  ![Serial OFFLINE](../assets/parte1/serial_offline.png)
-
-- **Serial ONLINE (flush)**
-
-  ![Serial ONLINE](../assets/parte1/serial_online_flush.png)
-
-- **Diagrama Wokwi**
-
-  ![Diagrama Wokwi](../assets/parte1/wokwi_diagrama.png)

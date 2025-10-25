@@ -14,11 +14,21 @@ Este diretório contém o firmware (Arduino Framework) para o ESP32 DevKit V1, a
 - Comandos seriais: `ONLINE` / `OFFLINE`.
 - Logs: `RAM_FLUSH <n>`, `MQTT_CONNECTED`, `MQTT_PUBLISH_OK`.
 
+## Lógica da aplicação
+- Leitura periódica do DHT22 e contagem de pulsos no botão.
+- A cada janela de 10s, calcula `BPM = pulsos * 6` e monta JSON da amostra.
+- Estado `CONNECTED` controlado via Serial (`ONLINE`/`OFFLINE`).
+- Se offline: enfileira amostra em buffer RAM (ring buffer, até 200 amostras).
+- Se online: tenta conectar WiFi e MQTT (HiveMQ Cloud TLS 8883), faz flush do backlog (`RAM_FLUSH <n>`) e publica amostra atual (`MQTT_PUBLISH_OK`).
+- Reconexão MQTT com backoff exponencial (1s→30s) e logs `MQTT_CONNECT_FAIL`/`MQTT_CONNECTED`.
+
 ## Segredos (config.h)
 - Crie `apps/edge-esp32/src/config.h` a partir de `config.h.example`. Não versionar.
 - Define: `WIFI_SSID`, `WIFI_PASS`, `MQTT_HOST`, `MQTT_PORT` (8883 para HiveMQ Cloud/TLS), `MQTT_USER`, `MQTT_PASS`.
 
 ## Rodando no Wokwi (apenas Serial)
+Projeto no Wokwi: https://wokwi.com/projects/445438493925842945
+
 1. Abra `apps/edge-esp32/wokwi/diagram.json`.
 2. Componentes: `esp32-devkit-v1`, `dht22` (DATA→GPIO 15), botão (GPIO 4 com pulldown 10k).
 3. Start → abra Serial Monitor 115200.
@@ -64,13 +74,9 @@ apps/edge-esp32/
 └─ platformio.ini
 ```
 
-## Onde salvar os prints
-- Conectividade HiveMQ Cloud (cliente MQTT, ex.: MQTT Explorer, conectado via TLS 8883, publish/subscribe funcionando): `assets/parte1/`
-- Envio via Node-RED (Inject → MQTT Out → recebido no HiveMQ Cloud): `assets/parte1/`
-- Serial do Wokwi/ESP32 mostrando BPM/JSON/ONLINE: `assets/parte2/`
-- Observação: se o dashboard não renderizou no seu ambiente, inclua prints dos nós `debug` (raw/normalized) e do broker “connected”.
-
 ## Solução de problemas
 - Bibliotecas Wokwi: use `PubSubClient` e `DHT sensor library for ESPx` em `libraries.txt`.
 - Sem leituras do DHT: revisar pino (15) e alimentação. Em hardware, pode precisar pull-up no DATA.
 - BPM sempre 0: checar ligação do botão (GPIO 4) e pulldown 10k.
+
+- **Capturas na pasta do Google Drive atraves do link:**: https://drive.google.com/file/d/1weEoeO-TcD4P9PwUW7FBi2mkm1K1MwJb/view?usp=drive_link

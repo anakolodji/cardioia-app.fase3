@@ -146,24 +146,11 @@ A seguir, um guia para encaminhar os dados recebidos pelo Node-RED ao Grafana Cl
 
 ---
 
-## 7. Evidências (prints)
+## 7. Evidências 
 
 - **Link do projeto no Wokwi**: https://wokwi.com/projects/445438493925842945
-- **Capturas a inserir:**
+- **Capturas na pasta do Google Drive atraves do link:**: https://drive.google.com/file/d/1weEoeO-TcD4P9PwUW7FBi2mkm1K1MwJb/view?usp=drive_link
   - Dashboard Node-RED com gráfico BPM, gauge Temp, LED de status e toast de alerta.
   - Cliente MQTT (ex.: MQTT Explorer) conectado ao tópico `cardioia/ana/v1/vitals` no HiveMQ Cloud.
-  - Opcional: painéis do Grafana Cloud lendo do InfluxDB (`vitals.temp`, `vitals.bpm`).
+ 
 
-### Placeholders de imagem
-
-- **Dashboard Node-RED**
-
-  ![Dashboard Node-RED](../assets/parte2/nodered_dashboard.png)
-
-- **Cliente MQTT (MQTT Explorer)**
-
-  ![MQTT Explorer](../assets/parte2/mqtt_explorer.png)
-
-- **Grafana Cloud (opcional)**
-
-  ![Grafana Painéis](../assets/parte2/grafana_dashboards.png)
